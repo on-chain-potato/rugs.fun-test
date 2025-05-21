@@ -322,6 +322,14 @@ html, body, #root {
 
 .player-profit.green-glow {
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.player-profit.green-glow svg {
+  margin-right: 2px;
+  filter: drop-shadow(0 0 2px #00ff00);
 }
 
 .player-percent.green-glow {
@@ -557,4 +565,68 @@ svg, rect, line, g {
 
 .trade-notification-border.sell {
   stroke: url(#sell-gradient);
+}
+
+/* Game State Overlays */
+.game-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Rugged candle styling */
+.rugged-candle {
+  animation: flash-red 1s ease-out;
+}
+
+@keyframes flash-red {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}
+
+/* Presale overlay */
+.presale-overlay {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+.presale-message {
+  background-color: rgba(0, 0, 0, 0.85);
+  border: 2px solid rgba(43, 255, 100, 0.7);
+  border-radius: 8px;
+  padding: 16px 24px;
+  color: white;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(43, 255, 100, 0.4);
+  max-width: 90%;
+}
+
+.presale-text {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 16px;
+}
+
+.presale-countdown {
+  font-size: 28px;
+  font-weight: bold;
+  color: #2BFF64;
+  text-shadow: 0 0 10px rgba(43, 255, 100, 0.7);
+}
+
+@media (max-width: 768px) {
+  .presale-text {
+    font-size: 16px;
+  }
+  
+  .presale-countdown {
+    font-size: 24px;
+  }
 }
