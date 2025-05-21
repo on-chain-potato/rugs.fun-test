@@ -10,8 +10,8 @@ const initialMockChartData = [];  // Changed to empty array to prevent candles s
 
 // Mock token data for trade markers
 const mockTokens = [
-  { symbol: "SOL", logo: "/solanaLogoMark (1).svg" },
-  { symbol: "FREE", logo: "/rugslogo.svg" },
+  { symbol: "SOL", logo: solanaLogo },
+  { symbol: "FREE", logo: rugsLogo },
 ];
 
 // Mock trade markers data - we'll add to this dynamically during simulation
