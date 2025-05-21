@@ -322,6 +322,8 @@ function GameGraph() {
   
   // Simplify animation approach - just track the last price for bounce animation
   const [animatedPrice, setAnimatedPrice] = useState(null);
+  const [animatedHigh, setAnimatedHigh] = useState(null);
+  const [animatedLow, setAnimatedLow] = useState(null);
   const priceAnimationRef = useRef(null);
   const actualPriceRef = useRef(null);
   
@@ -963,18 +965,28 @@ function GameGraph() {
     // Get the latest price
     const latestCandle = chartData[chartData.length - 1];
     const actualPrice = latestCandle.close;
+    const actualHigh = latestCandle.high;
+    const actualLow = latestCandle.low;
     
     // Store actual price in ref for animation access
-    actualPriceRef.current = actualPrice;
+    actualPriceRef.current = {
+      close: actualPrice,
+      high: actualHigh,
+      low: actualLow
+    };
     
-    // Initialize animated price if needed
-    if (animatedPrice === null) {
+    // Initialize animated values if needed
+    if (animatedPrice === null || animatedHigh === null || animatedLow === null) {
       setAnimatedPrice(actualPrice);
+      setAnimatedHigh(actualHigh);
+      setAnimatedLow(actualLow);
       return;
     }
     
     // Skip animation if the difference is negligible
-    if (Math.abs(animatedPrice - actualPrice) < 0.0001) {
+    if (Math.abs(animatedPrice - actualPrice) < 0.0001 &&
+        Math.abs(animatedHigh - actualHigh) < 0.0001 &&
+        Math.abs(animatedLow - actualLow) < 0.0001) {
       return;
     }
     
@@ -984,25 +996,65 @@ function GameGraph() {
       priceAnimationRef.current = null;
     }
     
-    // Animation function - smooth transition between prices
+    // Smoothing function
+    const lerp = (start, end, t) => start + (end - start) * t;
+    
+    // Animation function - smooth transition between values
     const animate = () => {
+      // Update close price
       setAnimatedPrice(prev => {
-        if (prev === null || actualPriceRef.current === null) return prev;
+        if (prev === null || !actualPriceRef.current) return prev;
         
-        const diff = actualPriceRef.current - prev;
+        const diff = actualPriceRef.current.close - prev;
         // Adjust animation speed factor (0.2 = fairly smooth)
         const step = diff * 0.2;
         
         // If we're close enough, snap to the actual value
         if (Math.abs(diff) < 0.0001) {
-          priceAnimationRef.current = null;
-          return actualPriceRef.current;
+          return actualPriceRef.current.close;
         }
         
-        const newValue = prev + step;
-        priceAnimationRef.current = requestAnimationFrame(animate);
-        return newValue;
+        return prev + step;
       });
+      
+      // Update high price
+      setAnimatedHigh(prev => {
+        if (prev === null || !actualPriceRef.current) return prev;
+        
+        const diff = actualPriceRef.current.high - prev;
+        const step = diff * 0.2;
+        
+        if (Math.abs(diff) < 0.0001) {
+          return actualPriceRef.current.high;
+        }
+        
+        return prev + step;
+      });
+      
+      // Update low price
+      setAnimatedLow(prev => {
+        if (prev === null || !actualPriceRef.current) return prev;
+        
+        const diff = actualPriceRef.current.low - prev;
+        const step = diff * 0.2;
+        
+        if (Math.abs(diff) < 0.0001) {
+          return actualPriceRef.current.low;
+        }
+        
+        return prev + step;
+      });
+      
+      // Continue animation unless all values are close enough
+      if (
+        Math.abs(animatedPrice - actualPriceRef.current.close) < 0.0001 &&
+        Math.abs(animatedHigh - actualPriceRef.current.high) < 0.0001 &&
+        Math.abs(animatedLow - actualPriceRef.current.low) < 0.0001
+      ) {
+        priceAnimationRef.current = null;
+      } else {
+        priceAnimationRef.current = requestAnimationFrame(animate);
+      }
     };
     
     // Start animation
@@ -1015,7 +1067,12 @@ function GameGraph() {
         priceAnimationRef.current = null;
       }
     };
-  }, [chartData.length > 0 ? chartData[chartData.length - 1].close : null, animatedPrice, gameState]);
+  }, [
+    chartData.length > 0 ? chartData[chartData.length - 1].close : null,
+    chartData.length > 0 ? chartData[chartData.length - 1].high : null, 
+    chartData.length > 0 ? chartData[chartData.length - 1].low : null,
+    animatedPrice, animatedHigh, animatedLow, gameState
+  ]);
 
   return (
     <div className="app-container">
@@ -1202,10 +1259,14 @@ function GameGraph() {
                     
                     // Calculate candle body dimensions - using animated price for the active candle
                     let candleClose = candle.close;
+                    let candleHigh = candle.high;
+                    let candleLow = candle.low;
                     
                     // Apply bounce animation only to the latest candle in active state
-                    if (isLatestCandle && gameState === 'active' && animatedPrice !== null) {
-                      candleClose = animatedPrice;
+                    if (isLatestCandle && gameState === 'active') {
+                      if (animatedPrice !== null) candleClose = animatedPrice;
+                      if (animatedHigh !== null) candleHigh = animatedHigh;
+                      if (animatedLow !== null) candleLow = animatedLow;
                     }
                     
                     const bodyTop = norm(Math.max(candle.open, candleClose));
@@ -1213,10 +1274,8 @@ function GameGraph() {
                     const bodyHeight = Math.max(bodyBottom - bodyTop, 2); // Ensure minimum height
                     
                     // Calculate wick dimensions
-                    const wickTop = norm(isLatestCandle && animatedPrice !== null ? 
-                      Math.max(candle.high, candleClose) : candle.high);
-                    const wickBottom = norm(isLatestCandle && animatedPrice !== null ?
-                      Math.min(candle.low, candleClose) : candle.low);
+                    const wickTop = norm(candleHigh);
+                    const wickBottom = norm(candleLow);
                     
                     // Only render candles that are in the visible area
                     // Allow candles to run off left side but ensure visible on right
