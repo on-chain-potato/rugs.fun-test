@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import "./App.css";
 import createBlockies from "ethereum-blockies-base64";
-import ruggedSvg from "/RUGGED.svg"; // Import the RUGGED.svg file
+import ruggedSvg from "./assets/RUGGED.svg"; // Import the RUGGED.svg file from assets
+import solanaLogo from "./assets/solanaLogoMark.svg"; // Import Solana logo
+import rugsLogo from "./assets/rugslogo.svg"; // Import Rugs logo
 
 // Mock data for chart and players
 const initialMockChartData = [];  // Changed to empty array to prevent candles showing on load
@@ -168,7 +170,7 @@ function PlayerBox({ player, index }) {
         <span className="player-profit green-glow">
           {player.profit.startsWith("+") && (
             <img 
-              src={player.tokenType === 'solana' ? '/solanalogomark (1).svg' : '/rugslogo.svg'} 
+              src={player.tokenType === 'solana' ? solanaLogo : rugsLogo} 
               alt={player.tokenType === 'solana' ? 'Solana' : 'Rugs'} 
               width="14" 
               height="14" 
