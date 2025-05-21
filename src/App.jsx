@@ -310,6 +310,7 @@ function TradeMarker({ trade, x, y, opacity = 1, candleX }) {
 
 function GameGraph() {
   const [chartData, setChartData] = useState(initialMockChartData);
+  const [displayChartData, setDisplayChartData] = useState(initialMockChartData); // For smooth candle animation
   const [currentMultiplier, setCurrentMultiplier] = useState(1.0);
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [visibleMaxValue, setVisibleMaxValue] = useState(2.0);
@@ -343,9 +344,8 @@ function GameGraph() {
   
   // Use memoization for chart data with game state
   const displayedChartData = useMemo(() => {
-    // Always use the direct chart data, no special handling needed
-    return chartData;
-  }, [chartData]);
+    return displayChartData;
+  }, [displayChartData]);
   
   // Memoize the trades as well to prevent updates
   const displayedTrades = useMemo(() => {
@@ -929,6 +929,45 @@ function GameGraph() {
       }
     };
   }, [currentMultiplier, displayMultiplier, gameState]);
+  
+  // Smoothly animate displayChartData toward chartData
+  useEffect(() => {
+    if (chartData.length === 0) {
+      setDisplayChartData([]);
+      return;
+    }
+    let animationFrame;
+    const animate = () => {
+      setDisplayChartData(prev => {
+        if (prev.length !== chartData.length) return chartData;
+        // Interpolate each candle's close value
+        return prev.map((candle, i) => {
+          const target = chartData[i];
+          if (!target) return candle;
+          const lerp = (a, b, t) => a + (b - a) * t;
+          const t = 0.3; // Smoothing factor
+          return {
+            ...candle,
+            close: Math.abs(candle.close - target.close) < 0.0001
+              ? target.close
+              : lerp(candle.close, target.close, t),
+            high: Math.abs(candle.high - target.high) < 0.0001
+              ? target.high
+              : lerp(candle.high, target.high, t),
+            low: Math.abs(candle.low - target.low) < 0.0001
+              ? target.low
+              : lerp(candle.low, target.low, t),
+            open: Math.abs(candle.open - target.open) < 0.0001
+              ? target.open
+              : lerp(candle.open, target.open, t),
+          };
+        });
+      });
+      animationFrame = requestAnimationFrame(animate);
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [chartData]);
   
   return (
     <div className="app-container">
