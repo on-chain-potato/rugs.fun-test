@@ -320,6 +320,11 @@ function GameGraph() {
   // Add ref for chart container to avoid DOM queries during render
   const chartContainerRef = useRef(null);
   
+  // Add state and refs for smooth candle animation
+  const [smoothCandle, setSmoothCandle] = useState(null);
+  const actualCandleRef = useRef(null);
+  const candleAnimationRef = useRef(null);
+  
   // Change from single activeTrade to array of active trades
   const [activeTradesMap, setActiveTradesMap] = useState({});
   const [tradeOpacity, setTradeOpacity] = useState(1);
@@ -943,6 +948,89 @@ function GameGraph() {
       }
     };
   }, [currentMultiplier, displayMultiplier, gameState]);
+
+  // Add smooth animation for the active candle
+  useEffect(() => {
+    // Get the latest candle
+    const latestCandle = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+    
+    // If there's no candle or we're not in active state, clean up and return
+    if (!latestCandle || gameState !== 'active') {
+      if (candleAnimationRef.current) {
+        cancelAnimationFrame(candleAnimationRef.current);
+        candleAnimationRef.current = null;
+      }
+      return;
+    }
+    
+    // Store the actual latest candle in the ref
+    actualCandleRef.current = latestCandle;
+    
+    // Initialize smoothCandle if needed
+    if (!smoothCandle) {
+      setSmoothCandle(latestCandle);
+      return;
+    }
+    
+    // Skip animation if values are close enough
+    const isCloseEnough = 
+      Math.abs(smoothCandle.close - latestCandle.close) < 0.0001 &&
+      Math.abs(smoothCandle.high - latestCandle.high) < 0.0001 &&
+      Math.abs(smoothCandle.low - latestCandle.low) < 0.0001;
+    
+    if (isCloseEnough) return;
+    
+    // Clean up existing animation
+    if (candleAnimationRef.current) {
+      cancelAnimationFrame(candleAnimationRef.current);
+      candleAnimationRef.current = null;
+    }
+    
+    // Smoothing function
+    const lerp = (start, end, t) => start + (end - start) * t;
+    
+    // Animation function
+    const animateCandle = () => {
+      setSmoothCandle(prev => {
+        if (!prev || !actualCandleRef.current) return prev;
+        
+        const actual = actualCandleRef.current;
+        const t = 0.25; // Smoothing factor - adjust for desired smoothness
+        
+        // Check if we're close enough to stop animation
+        if (
+          Math.abs(prev.close - actual.close) < 0.0001 &&
+          Math.abs(prev.high - actual.high) < 0.0001 &&
+          Math.abs(prev.low - actual.low) < 0.0001
+        ) {
+          cancelAnimationFrame(candleAnimationRef.current);
+          candleAnimationRef.current = null;
+          return actual;
+        }
+        
+        // Smoothly interpolate values
+        return {
+          ...prev,
+          close: lerp(prev.close, actual.close, t),
+          high: lerp(prev.high, actual.high, t),
+          low: lerp(prev.low, actual.low, t)
+        };
+      });
+      
+      candleAnimationRef.current = requestAnimationFrame(animateCandle);
+    };
+    
+    // Start animation
+    candleAnimationRef.current = requestAnimationFrame(animateCandle);
+    
+    // Cleanup
+    return () => {
+      if (candleAnimationRef.current) {
+        cancelAnimationFrame(candleAnimationRef.current);
+        candleAnimationRef.current = null;
+      }
+    };
+  }, [chartData.length > 0 ? chartData[chartData.length - 1] : null, smoothCandle, gameState]);
   
   return (
     <div className="app-container">
@@ -1083,12 +1171,16 @@ function GameGraph() {
                   
                   {/* Then draw the candles */}
                   {displayedChartData.length > 0 && (isTestRunning || isRugged) && displayedChartData.map((candle, i) => {
-                    const prev = i > 0 ? displayedChartData[i - 1] : candle;
-                    const up = candle.close >= candle.open;
-                    const isRugCandle = candle.isRugCandle; // Check if this is the final rug candle
+                    const isLatestCandle = i === displayedChartData.length - 1;
                     
-                    // For rug candles, always use red gradient regardless of open/close values
-                    const gradientId = isRugCandle ? "red-gradient" : (up ? "red-gradient" : "blue-gradient");
+                    // Use the smoothed candle for the latest candle in active state
+                    const displayCandle = (isLatestCandle && smoothCandle && gameState === 'active') 
+                      ? smoothCandle 
+                      : candle;
+                      
+                    const prev = i > 0 ? displayedChartData[i - 1] : displayCandle;
+                    const up = displayCandle.close >= displayCandle.open;
+                    const isRugCandle = displayCandle.isRugCandle; // Check if this is the final rug candle
                     
                     // Calculate responsive values based on window width
                     const isMobile = windowWidth <= 640;
@@ -1116,10 +1208,8 @@ function GameGraph() {
                     const gap = Math.max(1, Math.min(CANDLE_GAP, containerWidth / 320));
                     
                     // Position the latest candle with a fixed offset from the right edge
-                    const isLatestCandle = i === displayedChartData.length - 1;
                     const distanceFromEnd = displayedChartData.length - 1 - i;
                     
-                    // Calculate the available width for chart
                     const availableWidth = containerWidth - rightMargin;
                     
                     // Calculate candle positions from right to left
@@ -1129,13 +1219,13 @@ function GameGraph() {
                     const x = latestCandleX - (distanceFromEnd * (responsiveCandleWidth + gap));
                     
                     // Calculate candle body dimensions
-                    const bodyTop = norm(Math.max(candle.open, candle.close));
-                    const bodyBottom = norm(Math.min(candle.open, candle.close));
+                    const bodyTop = norm(Math.max(displayCandle.open, displayCandle.close));
+                    const bodyBottom = norm(Math.min(displayCandle.open, displayCandle.close));
                     const bodyHeight = Math.max(bodyBottom - bodyTop, 2); // Ensure minimum height
                     
                     // Calculate wick dimensions
-                    const wickTop = norm(candle.high);
-                    const wickBottom = norm(candle.low);
+                    const wickTop = norm(displayCandle.high);
+                    const wickBottom = norm(displayCandle.low);
                     
                     // Only render candles that are in the visible area
                     // Allow candles to run off left side but ensure visible on right
@@ -1165,7 +1255,7 @@ function GameGraph() {
                           y={bodyTop}
                           width={responsiveCandleWidth}
                           height={bodyHeight}
-                          fill={`url(#${ruggedCandle ? "red-gradient" : gradientId})`}
+                          fill={`url(#${ruggedCandle ? "red-gradient" : (up ? "red-gradient" : "blue-gradient")})`}
                           style={{
                             filter: ruggedCandle 
                               ? "drop-shadow(0 0 8px #FF0000) drop-shadow(0 0 12px #FF3300)" // Fire glow for rug candle
