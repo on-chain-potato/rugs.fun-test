@@ -310,13 +310,15 @@ function TradeMarker({ trade, x, y, opacity = 1, candleX }) {
 
 function GameGraph() {
   const [chartData, setChartData] = useState(initialMockChartData);
-  const [displayChartData, setDisplayChartData] = useState(initialMockChartData); // For smooth candle animation
   const [currentMultiplier, setCurrentMultiplier] = useState(1.0);
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [visibleMaxValue, setVisibleMaxValue] = useState(2.0);
   const [displayMultiplier, setDisplayMultiplier] = useState(1.0);
   const [currentTick, setCurrentTick] = useState(0);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  
+  // Add ref for chart container to avoid DOM queries during render
+  const chartContainerRef = useRef(null);
   
   // Change from single activeTrade to array of active trades
   const [activeTradesMap, setActiveTradesMap] = useState({});
@@ -344,8 +346,9 @@ function GameGraph() {
   
   // Use memoization for chart data with game state
   const displayedChartData = useMemo(() => {
-    return displayChartData;
-  }, [displayChartData]);
+    // Always use the direct chart data, no special handling needed
+    return chartData;
+  }, [chartData]);
   
   // Memoize the trades as well to prevent updates
   const displayedTrades = useMemo(() => {
@@ -874,10 +877,17 @@ function GameGraph() {
   useEffect(() => {
     // Don't skip animation for rugged state - we need to animate down to 0
     if (gameState === 'presale') {
+      setDisplayMultiplier(1.0); // Ensure display is at 1.0 in presale
       return;
     }
     
     if (displayMultiplier === currentMultiplier) return;
+    
+    // Clean up any existing animation frame first
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     
     const animateValue = () => {
       // If game is rugged but display hasn't reached 0 yet, force faster animation to 0
@@ -889,6 +899,7 @@ function GameGraph() {
         if (newValue <= 0.05) {
           setDisplayMultiplier(0);
           cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
           return;
         }
         
@@ -900,6 +911,7 @@ function GameGraph() {
         // Final snap to exactly 0
         setDisplayMultiplier(0);
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
         return;
       }
       
@@ -912,6 +924,7 @@ function GameGraph() {
       if (Math.abs(diff) < 0.0001) {
         setDisplayMultiplier(currentMultiplier);
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
         return;
       }
       
@@ -926,48 +939,10 @@ function GameGraph() {
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [currentMultiplier, displayMultiplier, gameState]);
-  
-  // Smoothly animate displayChartData toward chartData
-  useEffect(() => {
-    if (chartData.length === 0) {
-      setDisplayChartData([]);
-      return;
-    }
-    let animationFrame;
-    const animate = () => {
-      setDisplayChartData(prev => {
-        if (prev.length !== chartData.length) return chartData;
-        // Interpolate each candle's close value
-        return prev.map((candle, i) => {
-          const target = chartData[i];
-          if (!target) return candle;
-          const lerp = (a, b, t) => a + (b - a) * t;
-          const t = 0.3; // Smoothing factor
-          return {
-            ...candle,
-            close: Math.abs(candle.close - target.close) < 0.0001
-              ? target.close
-              : lerp(candle.close, target.close, t),
-            high: Math.abs(candle.high - target.high) < 0.0001
-              ? target.high
-              : lerp(candle.high, target.high, t),
-            low: Math.abs(candle.low - target.low) < 0.0001
-              ? target.low
-              : lerp(candle.low, target.low, t),
-            open: Math.abs(candle.open - target.open) < 0.0001
-              ? target.open
-              : lerp(candle.open, target.open, t),
-          };
-        });
-      });
-      animationFrame = requestAnimationFrame(animate);
-    };
-    animationFrame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [chartData]);
   
   return (
     <div className="app-container">
@@ -990,7 +965,9 @@ function GameGraph() {
             </div>
             
             {/* Chart area with candles */}
-            <div className="chart-container" style={{ overflow: 'visible', position: 'relative' }}>
+            <div className="chart-container" 
+                 ref={chartContainerRef}
+                 style={{ overflow: 'visible', position: 'relative' }}>
               <div className="chart-area" style={{ overflow: 'visible' }}>
                 {/* Move the grid lines and labels inside this SVG to ensure proper layering */}
                 <svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ overflow: 'visible' }}>
@@ -1118,8 +1095,9 @@ function GameGraph() {
                     const isSmall = windowWidth <= 900 && windowWidth > 640;
                     
                     // Get container dimensions
-                    const chartContainer = document.querySelector('.chart-container');
-                    const containerWidth = chartContainer ? chartContainer.clientWidth : CHART_WIDTH;
+                    const containerWidth = chartContainerRef.current 
+                      ? chartContainerRef.current.clientWidth 
+                      : CHART_WIDTH;
                     
                     // Reserve space for leaderboard based on container size
                     // Be extremely aggressive with the right margin to ensure candles are never cut off
@@ -1282,8 +1260,9 @@ function GameGraph() {
                       const isMobile = windowWidth <= 640;
                       const isSmall = windowWidth <= 900 && windowWidth > 640;
                       
-                      const chartContainer = document.querySelector('.chart-container');
-                      const containerWidth = chartContainer ? chartContainer.clientWidth : CHART_WIDTH;
+                      const containerWidth = chartContainerRef.current 
+                        ? chartContainerRef.current.clientWidth 
+                        : CHART_WIDTH;
                       
                       const leaderboardWidth = isMobile ? 160 : (isSmall ? 240 : 320);
                       const rightMargin = containerWidth * 0.25 + leaderboardWidth * 0.1;
