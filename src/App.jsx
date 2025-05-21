@@ -320,10 +320,10 @@ function GameGraph() {
   // Add ref for chart container to avoid DOM queries during render
   const chartContainerRef = useRef(null);
   
-  // Add state and refs for smooth candle animation
-  const [smoothCandle, setSmoothCandle] = useState(null);
-  const actualCandleRef = useRef(null);
-  const candleAnimationRef = useRef(null);
+  // Simplify animation approach - just track the last price for bounce animation
+  const [animatedPrice, setAnimatedPrice] = useState(null);
+  const priceAnimationRef = useRef(null);
+  const actualPriceRef = useRef(null);
   
   // Change from single activeTrade to array of active trades
   const [activeTradesMap, setActiveTradesMap] = useState({});
@@ -949,89 +949,74 @@ function GameGraph() {
     };
   }, [currentMultiplier, displayMultiplier, gameState]);
 
-  // Add smooth animation for the active candle
+  // Update the active candle animation to only handle the "bounce" effect
   useEffect(() => {
-    // Get the latest candle
-    const latestCandle = chartData.length > 0 ? chartData[chartData.length - 1] : null;
-    
-    // If there's no candle or we're not in active state, clean up and return
-    if (!latestCandle || gameState !== 'active') {
-      if (candleAnimationRef.current) {
-        cancelAnimationFrame(candleAnimationRef.current);
-        candleAnimationRef.current = null;
+    // Only run in active state
+    if (gameState !== 'active' || chartData.length === 0) {
+      if (priceAnimationRef.current) {
+        cancelAnimationFrame(priceAnimationRef.current);
+        priceAnimationRef.current = null;
       }
       return;
     }
     
-    // Store the actual latest candle in the ref
-    actualCandleRef.current = latestCandle;
+    // Get the latest price
+    const latestCandle = chartData[chartData.length - 1];
+    const actualPrice = latestCandle.close;
     
-    // Initialize smoothCandle if needed
-    if (!smoothCandle) {
-      setSmoothCandle(latestCandle);
+    // Store actual price in ref for animation access
+    actualPriceRef.current = actualPrice;
+    
+    // Initialize animated price if needed
+    if (animatedPrice === null) {
+      setAnimatedPrice(actualPrice);
       return;
     }
     
-    // Skip animation if values are close enough
-    const isCloseEnough = 
-      Math.abs(smoothCandle.close - latestCandle.close) < 0.0001 &&
-      Math.abs(smoothCandle.high - latestCandle.high) < 0.0001 &&
-      Math.abs(smoothCandle.low - latestCandle.low) < 0.0001;
-    
-    if (isCloseEnough) return;
-    
-    // Clean up existing animation
-    if (candleAnimationRef.current) {
-      cancelAnimationFrame(candleAnimationRef.current);
-      candleAnimationRef.current = null;
+    // Skip animation if the difference is negligible
+    if (Math.abs(animatedPrice - actualPrice) < 0.0001) {
+      return;
     }
     
-    // Smoothing function
-    const lerp = (start, end, t) => start + (end - start) * t;
+    // Clean up existing animation
+    if (priceAnimationRef.current) {
+      cancelAnimationFrame(priceAnimationRef.current);
+      priceAnimationRef.current = null;
+    }
     
-    // Animation function
-    const animateCandle = () => {
-      setSmoothCandle(prev => {
-        if (!prev || !actualCandleRef.current) return prev;
+    // Animation function - smooth transition between prices
+    const animate = () => {
+      setAnimatedPrice(prev => {
+        if (prev === null || actualPriceRef.current === null) return prev;
         
-        const actual = actualCandleRef.current;
-        const t = 0.25; // Smoothing factor - adjust for desired smoothness
+        const diff = actualPriceRef.current - prev;
+        // Adjust animation speed factor (0.2 = fairly smooth)
+        const step = diff * 0.2;
         
-        // Check if we're close enough to stop animation
-        if (
-          Math.abs(prev.close - actual.close) < 0.0001 &&
-          Math.abs(prev.high - actual.high) < 0.0001 &&
-          Math.abs(prev.low - actual.low) < 0.0001
-        ) {
-          cancelAnimationFrame(candleAnimationRef.current);
-          candleAnimationRef.current = null;
-          return actual;
+        // If we're close enough, snap to the actual value
+        if (Math.abs(diff) < 0.0001) {
+          priceAnimationRef.current = null;
+          return actualPriceRef.current;
         }
         
-        // Smoothly interpolate values
-        return {
-          ...prev,
-          close: lerp(prev.close, actual.close, t),
-          high: lerp(prev.high, actual.high, t),
-          low: lerp(prev.low, actual.low, t)
-        };
+        const newValue = prev + step;
+        priceAnimationRef.current = requestAnimationFrame(animate);
+        return newValue;
       });
-      
-      candleAnimationRef.current = requestAnimationFrame(animateCandle);
     };
     
     // Start animation
-    candleAnimationRef.current = requestAnimationFrame(animateCandle);
+    priceAnimationRef.current = requestAnimationFrame(animate);
     
     // Cleanup
     return () => {
-      if (candleAnimationRef.current) {
-        cancelAnimationFrame(candleAnimationRef.current);
-        candleAnimationRef.current = null;
+      if (priceAnimationRef.current) {
+        cancelAnimationFrame(priceAnimationRef.current);
+        priceAnimationRef.current = null;
       }
     };
-  }, [chartData.length > 0 ? chartData[chartData.length - 1] : null, smoothCandle, gameState]);
-  
+  }, [chartData.length > 0 ? chartData[chartData.length - 1].close : null, animatedPrice, gameState]);
+
   return (
     <div className="app-container">
       <Logo />
@@ -1172,15 +1157,12 @@ function GameGraph() {
                   {/* Then draw the candles */}
                   {displayedChartData.length > 0 && (isTestRunning || isRugged) && displayedChartData.map((candle, i) => {
                     const isLatestCandle = i === displayedChartData.length - 1;
+                    const prev = i > 0 ? displayedChartData[i - 1] : candle;
+                    const up = candle.close >= candle.open;
+                    const isRugCandle = candle.isRugCandle || (gameState === 'rugged' && isLatestCandle);
                     
-                    // Use the smoothed candle for the latest candle in active state
-                    const displayCandle = (isLatestCandle && smoothCandle && gameState === 'active') 
-                      ? smoothCandle 
-                      : candle;
-                      
-                    const prev = i > 0 ? displayedChartData[i - 1] : displayCandle;
-                    const up = displayCandle.close >= displayCandle.open;
-                    const isRugCandle = displayCandle.isRugCandle; // Check if this is the final rug candle
+                    // For rug candles, always use red gradient regardless of open/close values
+                    const gradientId = isRugCandle ? "red-gradient" : (up ? "red-gradient" : "blue-gradient");
                     
                     // Calculate responsive values based on window width
                     const isMobile = windowWidth <= 640;
@@ -1218,14 +1200,23 @@ function GameGraph() {
                     const latestCandleX = availableWidth - SAFE_MARGIN;
                     const x = latestCandleX - (distanceFromEnd * (responsiveCandleWidth + gap));
                     
-                    // Calculate candle body dimensions
-                    const bodyTop = norm(Math.max(displayCandle.open, displayCandle.close));
-                    const bodyBottom = norm(Math.min(displayCandle.open, displayCandle.close));
+                    // Calculate candle body dimensions - using animated price for the active candle
+                    let candleClose = candle.close;
+                    
+                    // Apply bounce animation only to the latest candle in active state
+                    if (isLatestCandle && gameState === 'active' && animatedPrice !== null) {
+                      candleClose = animatedPrice;
+                    }
+                    
+                    const bodyTop = norm(Math.max(candle.open, candleClose));
+                    const bodyBottom = norm(Math.min(candle.open, candleClose));
                     const bodyHeight = Math.max(bodyBottom - bodyTop, 2); // Ensure minimum height
                     
                     // Calculate wick dimensions
-                    const wickTop = norm(displayCandle.high);
-                    const wickBottom = norm(displayCandle.low);
+                    const wickTop = norm(isLatestCandle && animatedPrice !== null ? 
+                      Math.max(candle.high, candleClose) : candle.high);
+                    const wickBottom = norm(isLatestCandle && animatedPrice !== null ?
+                      Math.min(candle.low, candleClose) : candle.low);
                     
                     // Only render candles that are in the visible area
                     // Allow candles to run off left side but ensure visible on right
@@ -1234,19 +1225,16 @@ function GameGraph() {
                     // Hide candles in presale mode
                     if (gameState === 'presale') return null;
                     
-                    // Determine if this is a rug candle for special styling
-                    const ruggedCandle = isRugCandle || (gameState === 'rugged' && isLatestCandle);
-                    
                     return (
-                      <g key={`candle-${i}`} className={ruggedCandle ? 'rugged-candle' : ''}>
+                      <g key={`candle-${i}`} className={isRugCandle ? 'rugged-candle' : ''}>
                         {/* Wick */}
                         <line
                           x1={x + responsiveCandleWidth / 2}
                           y1={wickTop}
                           x2={x + responsiveCandleWidth / 2}
                           y2={wickBottom}
-                          stroke={ruggedCandle ? "#FF3300" : (up ? "#FF3B3B" : "#3B6EFF")}
-                          strokeWidth={ruggedCandle ? (isMobile ? 3 : 4) : (isMobile ? 1 : 2)} // Thicker for rug candle
+                          stroke={isRugCandle ? "#FF3300" : (up ? "#FF3B3B" : "#3B6EFF")}
+                          strokeWidth={isRugCandle ? (isMobile ? 3 : 4) : (isMobile ? 1 : 2)} // Thicker for rug candle
                         />
                         
                         {/* Candle body */}
@@ -1255,16 +1243,16 @@ function GameGraph() {
                           y={bodyTop}
                           width={responsiveCandleWidth}
                           height={bodyHeight}
-                          fill={`url(#${ruggedCandle ? "red-gradient" : (up ? "red-gradient" : "blue-gradient")})`}
+                          fill={`url(#${gradientId})`}
                           style={{
-                            filter: ruggedCandle 
+                            filter: isRugCandle 
                               ? "drop-shadow(0 0 8px #FF0000) drop-shadow(0 0 12px #FF3300)" // Fire glow for rug candle
                               : (up ? "drop-shadow(0 0 4px #FF3B3B) drop-shadow(0 0 8px #FF6EC7)" : "none")
                           }}
                         />
                         
                         {/* Add explosion effect for the rug candle */}
-                        {ruggedCandle && (
+                        {isRugCandle && (
                           <circle
                             cx={x + responsiveCandleWidth / 2}
                             cy={bodyBottom}
@@ -1286,8 +1274,8 @@ function GameGraph() {
                       <line
                         x1="0"
                         x2="120%" /* Extend beyond container width to flow behind leaderboard */
-                        y1={norm(displayMultiplier)}
-                        y2={norm(displayMultiplier)}
+                        y1={norm(gameState === 'active' && animatedPrice !== null ? animatedPrice : displayMultiplier)}
+                        y2={norm(gameState === 'active' && animatedPrice !== null ? animatedPrice : displayMultiplier)}
                         stroke="url(#rainbow-gradient)"
                         strokeWidth={2}
                         className="current-price-indicator"
@@ -1298,7 +1286,7 @@ function GameGraph() {
                       {/* Add the multiplier text directly in the SVG */}
                       <text
                         x="97%" // Move further right, away from candles
-                        y={norm(displayMultiplier) - 15}
+                        y={norm(gameState === 'active' && animatedPrice !== null ? animatedPrice : displayMultiplier) - 15}
                         fill="#FFFFFF"
                         fontSize={windowWidth <= 640 ? 18 : windowWidth <= 900 ? 22 : 28}
                         textAnchor="end"
@@ -1309,7 +1297,7 @@ function GameGraph() {
                           fontWeight: 700
                         }}
                       >
-                        {displayMultiplier.toFixed(4)}X
+                        {(gameState === 'active' && animatedPrice !== null ? animatedPrice : displayMultiplier).toFixed(4)}X
                       </text>
                     </g>
                   )}
